@@ -4,7 +4,12 @@ on:
   schedule:
     # 08:00 UTC daily (~9-10am Poland time depending on DST)
     - cron: "0 8 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "Optional: specific date to scrape (YYYY-MM-DD). Leave blank for yesterday."
+        required: false
+        type: string
 
 jobs:
   scrape:
@@ -23,3 +28,4 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          TARGET_DATE: ${{ inputs.target_date }}

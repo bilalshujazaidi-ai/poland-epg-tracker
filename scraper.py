@@ -406,7 +406,8 @@ def resolve_title(title, country, year):
 # ---------------------------------------------------------------------------
 
 def main():
-    target_date = date.today() - timedelta(days=1)
+    override = os.environ.get("TARGET_DATE")
+    target_date = date.fromisoformat(override) if override else date.today() - timedelta(days=1)
     print(f"Target date: {target_date.isoformat()}")
     print(f"Supabase URL: {SUPABASE_URL}")
     print(f"Service key length: {len(SUPABASE_SERVICE_KEY)} chars "
