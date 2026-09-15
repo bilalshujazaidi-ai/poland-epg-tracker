@@ -230,7 +230,7 @@ async function loadMonth(){
   calGrid.innerHTML = ''; statGrid.innerHTML = ''; rankList.innerHTML = '';
   const total = daysInMonth(state.month);
   const todayIso = isoOf(new Date());
-  const start = `${state.month}-01`, end = `${state.month}-31`;
+  const start = `${state.month}-01`, end = `${state.month}-${PAD(total)}`;
 
   const logRows = await sb('scrape_log', { channel_slug: `eq.${state.slug}`, date: `gte.${start}`, and: `(date.lte.${end})`, select: 'date,entry_count' });
   const loggedDates = new Set(logRows.map(r => r.date));
