@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Poland EPG Tracker</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F6F4EF;
+  --surface:#FFFFFF;
+  --surface-alt:#EFEDE5;
+  --ink:#1E211D;
+  --muted:#6B7268;
+  --accent:#2B6E63;
+  --accent-ink:#0E332C;
+  --accent-soft:#DEEAE6;
+  --line:#E3DFD5;
+  --warn:#B65C2E;
+  --warn-soft:#F5E4D8;
+  --shadow: 0 1px 2px rgba(30,33,29,.06), 0 8px 24px -16px rgba(30,33,29,.25);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#14171A; --surface:#1B1F22; --surface-alt:#20262A; --ink:#ECEEEA;
+    --muted:#98A29B; --accent:#4FBFA8; --accent-ink:#DFF7F0;
+    --accent-soft:rgba(79,191,168,.16); --line:#2B3134;
+    --warn:#E08A54; --warn-soft:rgba(224,138,84,.16);
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 28px -16px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14171A; --surface:#1B1F22; --surface-alt:#20262A; --ink:#ECEEEA;
+  --muted:#98A29B; --accent:#4FBFA8; --accent-ink:#DFF7F0;
+  --accent-soft:rgba(79,191,168,.16); --line:#2B3134;
+  --warn:#E08A54; --warn-soft:rgba(224,138,84,.16);
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 28px -16px rgba(0,0,0,.6);
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;padding:0 20px;}
+.wrap{max-width:960px;margin:0 auto;padding-block:28px 60px;}
+.mast{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:10px 20px;padding-bottom:18px;border-bottom:2px solid var(--ink);margin-bottom:20px;}
+.mast h1{font-family:"Libre Franklin",sans-serif;font-weight:800;font-size:28px;letter-spacing:-0.01em;margin:0;text-wrap:balance;}
+.mast .tag{font-size:13px;color:var(--muted);font-family:"IBM Plex Mono",monospace;}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:22px;}
+.seg{display:inline-flex;background:var(--surface-alt);border-radius:8px;padding:3px;gap:2px;}
+.seg button{appearance:none;border:none;background:transparent;color:var(--muted);font:600 13px/1 "IBM Plex Sans",sans-serif;padding:8px 14px;border-radius:6px;cursor:pointer;}
+.seg button.active{background:var(--surface);color:var(--ink);box-shadow:var(--shadow);}
+.seg button:focus-visible, select:focus-visible, .daycell:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+select{font:500 13px "IBM Plex Sans",sans-serif;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;}
+.spacer{flex:1;}
+.datepick{display:flex;align-items:center;gap:6px;font-family:"IBM Plex Mono",monospace;font-size:13px;}
+.datepick button{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:14px;line-height:1;}
+.datepick .cur{min-width:118px;text-align:center;font-weight:600;}
+.eyebrow{font:600 11px/1 "IBM Plex Mono",monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;}
+section{margin-bottom:34px;}
+.ledger{border-top:1px solid var(--line);overflow-x:auto;}
+.sched-table{width:100%;border-collapse:collapse;font-size:14px;min-width:700px;}
+.sched-table thead th{text-align:left;font:600 11px/1 "IBM Plex Mono",monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:0 10px 10px;border-bottom:2px solid var(--ink);white-space:nowrap;}
+.sched-table thead th.num{text-align:right;}
+.sched-table tbody td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:top;}
+.sched-table tbody tr:hover{background:var(--surface-alt);}
+.sched-table .t-title{font-family:"Libre Franklin",sans-serif;font-weight:700;font-size:14.5px;}
+.sched-table .t-origname{color:var(--muted);font-style:italic;font-size:13.5px;}
+.sched-table td.num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;text-align:right;color:var(--ink);}
+.sched-table .t-time{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;text-align:right;color:var(--accent);font-weight:600;white-space:nowrap;}
+.sched-table .t-time .dur{display:block;color:var(--muted);font-weight:400;font-size:11px;}
+.sched-table .t-origin{color:var(--muted);font-size:13px;}
+.imdb-link{font:600 12px "IBM Plex Sans",sans-serif;color:var(--accent);text-decoration:none;white-space:nowrap;}
+.imdb-link:hover{text-decoration:underline;}
+.imdb-link.unmatched{color:var(--muted);font-weight:500;}
+.empty{padding:26px 0;color:var(--muted);font-size:14px;}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:22px;}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;}
+.stat .n{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;font-weight:600;font-size:22px;}
+.stat .l{font-size:12px;color:var(--muted);margin-top:2px;}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-bottom:26px;}
+.daycell{aspect-ratio:1;border-radius:6px;display:flex;align-items:center;justify-content:center;font:600 12px "IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;cursor:default;border:1px solid var(--line);color:var(--muted);background:var(--surface);}
+.daycell.has{background:var(--accent-soft);color:var(--accent-ink);border-color:transparent;cursor:pointer;}
+.daycell.missing{background:var(--warn-soft);color:var(--warn);border-style:dashed;}
+.daycell.future{opacity:.35;}
+.rank{border-top:1px solid var(--line);}
+.rank-row{display:grid;grid-template-columns:34px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);}
+.rank-row .pos{font-family:"IBM Plex Mono",monospace;color:var(--muted);font-size:13px;}
+.rank-row .name{font-weight:600;font-size:14px;}
+.rank-row .count{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;font-size:13px;color:var(--muted);white-space:nowrap;}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:14px;}
+.legend span{display:inline-flex;align-items:center;gap:6px;}
+.dot{width:10px;height:10px;border-radius:3px;display:inline-block;}
+footer{margin-top:40px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:16px;}
+footer a{color:var(--accent);}
+@media (max-width:520px){ .mast h1{font-size:22px;} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="mast">
+    <div>
+      <h1>Poland EPG Tracker</h1>
+      <div class="tag">Poland channel programming — logged daily, source: programtv.naziemna.info</div>
+    </div>
+    <div class="tag" id="statusTag">connecting…</div>
+  </div>
+
+  <div class="bar">
+    <select id="channelSelect"></select>
+    <div class="seg">
+      <button data-view="day" class="active">Day log</button>
+      <button data-view="month">Month rollup</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="datepick" id="dayNav">
+      <button id="prevDay" aria-label="Previous day">‹</button>
+      <span class="cur" id="curDate">—</span>
+      <button id="nextDay" aria-label="Next day">›</button>
+    </div>
+    <div class="datepick" id="monthNav" style="display:none">
+      <button id="prevMonth" aria-label="Previous month">‹</button>
+      <span class="cur" id="curMonth">—</span>
+      <button id="nextMonth" aria-label="Next month">›</button>
+    </div>
+  </div>
+
+  <section id="dayView">
+    <p class="eyebrow">Broadcast day (06:00 – 05:59)</p>
+    <div class="ledger">
+      <table class="sched-table">
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Original name</th>
+            <th class="num">Series</th>
+            <th class="num">Episode</th>
+            <th>Origin</th>
+            <th class="num">Year</th>
+            <th class="num">Timing</th>
+            <th>IMDb</th>
+          </tr>
+        </thead>
+        <tbody id="ledger"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="monthView" style="display:none">
+    <p class="eyebrow">Coverage — days logged this month</p>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--accent-soft)"></span>logged</span>
+      <span><span class="dot" style="background:var(--warn-soft)"></span>gap (not yet scraped)</span>
+    </div>
+    <div class="cal" id="calGrid"></div>
+    <div class="stats" id="statGrid"></div>
+    <p class="eyebrow">Most-aired titles</p>
+    <div class="rank" id="rankList"></div>
+  </section>
+
+  <footer>Written by a scraper that runs daily on <a href="https://github.com/bilalshujazaidi-ai/poland-epg-tracker" target="_blank" rel="noopener">GitHub Actions</a>, pulling the previous day's finalized listing and storing it in Supabase. This page reads that data directly — nothing here is edited by hand.</footer>
+</div>
+
+<script>
+const SUPABASE_URL = "https://vpgiavduczlqvfcigmdg.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZwZ2lhdmR1Y3pscXZmY2lnbWRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0NzU4MjQsImV4cCI6MjEwNTA1MTgyNH0.5AicyIbqQMVUQ63_WRsahYPNbYcN0ojFN96u4Vlf7ZM";
+
+const PAD = n => String(n).padStart(2,'0');
+const isoOf = d => `${d.getFullYear()}-${PAD(d.getMonth()+1)}-${PAD(d.getDate())}`;
+const dayLabel = d => d.toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short',year:'numeric'});
+const monthLabel = ym => { const [y,m]=ym.split('-'); return new Date(+y,+m-1,1).toLocaleDateString('en-GB',{month:'long',year:'numeric'}); };
+const daysInMonth = ym => { const [y,m]=ym.split('-').map(Number); return new Date(y,m,0).getDate(); };
+
+let state = { slug: 'bbcfirst', view: 'day', date: null, month: null };
+
+async function sb(path, params) {
+  const url = new URL(`${SUPABASE_URL}/rest/v1/${path}`);
+  Object.entries(params || {}).forEach(([k,v]) => url.searchParams.set(k, v));
+  const res = await fetch(url, { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } });
+  if (!res.ok) { console.error('Supabase error', res.status, await res.text()); return []; }
+  return res.json();
+}
+
+function seriesEpisodeOf(e){
+  const info = e.series_info || '';
+  let series = null, episode = null;
+  let m = info.match(/(?:Seria|Sezon)\s+(\d+)/i);
+  if (m) series = m[1];
+  m = info.match(/odc\.?\s*(\d+)/i);
+  if (m) episode = m[1];
+  if (episode === null && e.episode_of){
+    const first = e.episode_of.split('/')[0];
+    if (first) episode = first;
+  }
+  return { series: series || '—', episode: episode || '—' };
+}
+
+function renderEntry(e){
+  const tr = document.createElement('tr');
+  const { series, episode } = seriesEpisodeOf(e);
+  const imdbCell = e.imdb_url
+    ? `<a class="imdb-link" href="${e.imdb_url}" target="_blank" rel="noopener">IMDb ↗</a>`
+    : `<a class="imdb-link unmatched" href="https://www.imdb.com/find/?q=${encodeURIComponent(e.title)}" target="_blank" rel="noopener">search ↗</a>`;
+  tr.innerHTML = `
+    <td class="t-title">${e.title}</td>
+    <td class="t-origname">${e.original_name || '—'}</td>
+    <td class="num">${series}</td>
+    <td class="num">${episode}</td>
+    <td class="t-origin">${e.country || '—'}</td>
+    <td class="num">${e.year || '—'}</td>
+    <td class="t-time">${e.time}${e.duration_min ? `<span class="dur">${e.duration_min} min</span>` : ''}</td>
+    <td>${imdbCell}</td>`;
+  return tr;
+}
+
+async function loadDay(){
+  const ledger = document.getElementById('ledger');
+  document.getElementById('curDate').textContent = dayLabel(new Date(state.date+'T00:00:00'));
+  ledger.innerHTML = '<tr><td colspan="8" class="empty">Loading…</td></tr>';
+  const rows = await sb('entries', { channel_slug: `eq.${state.slug}`, date: `eq.${state.date}`, select: '*', order: 'time.asc' });
+  ledger.innerHTML = '';
+  if (!rows.length){
+    ledger.innerHTML = `<tr><td colspan="8" class="empty">No listing logged for ${state.date} yet.</td></tr>`;
+    return;
+  }
+  rows.forEach(e => ledger.appendChild(renderEntry(e)));
+}
+
+async function loadMonth(){
+  document.getElementById('curMonth').textContent = monthLabel(state.month);
+  const calGrid = document.getElementById('calGrid');
+  const statGrid = document.getElementById('statGrid');
+  const rankList = document.getElementById('rankList');
+  calGrid.innerHTML = ''; statGrid.innerHTML = ''; rankList.innerHTML = '';
+  const total = daysInMonth(state.month);
+  const todayIso = isoOf(new Date());
+  const start = `${state.month}-01`, end = `${state.month}-31`;
+
+  const logRows = await sb('scrape_log', { channel_slug: `eq.${state.slug}`, date: `gte.${start}`, and: `(date.lte.${end})`, select: 'date,entry_count' });
+  const loggedDates = new Set(logRows.map(r => r.date));
+
+  for (let day=1; day<=total; day++){
+    const iso = `${state.month}-${PAD(day)}`;
+    const cell = document.createElement('div');
+    const has = loggedDates.has(iso);
+    const future = iso > todayIso;
+    cell.className = 'daycell ' + (has ? 'has' : (future ? 'future' : 'missing'));
+    cell.textContent = day;
+    cell.title = has ? `${iso} — logged` : (future ? `${iso} — upcoming` : `${iso} — gap`);
+    if (has) cell.addEventListener('click', () => { state.view='day'; state.date=iso; switchView('day'); });
+    calGrid.appendChild(cell);
+  }
+
+  const entryRows = await sb('entries', { channel_slug: `eq.${state.slug}`, date: `gte.${start}`, and: `(date.lte.${end})`, select: 'title,duration_min' });
+  let totalMinutes = 0, titleCounts = {};
+  entryRows.forEach(e => {
+    totalMinutes += e.duration_min || 0;
+    titleCounts[e.title] = (titleCounts[e.title]||0) + 1;
+  });
+
+  [['Days logged', `${loggedDates.size} / ${total}`], ['Programmes', entryRows.length], ['Hours aired', (totalMinutes/60).toFixed(1)]]
+    .forEach(([l,n]) => {
+      const s = document.createElement('div'); s.className='stat';
+      s.innerHTML = `<div class="n">${n}</div><div class="l">${l}</div>`;
+      statGrid.appendChild(s);
+    });
+
+  const ranked = Object.entries(titleCounts).sort((a,b)=>b[1]-a[1]).slice(0,15);
+  if (!ranked.length){
+    rankList.innerHTML = '<div class="empty">No entries logged yet this month.</div>';
+  } else {
+    ranked.forEach(([title,count],i) => {
+      const row = document.createElement('div'); row.className='rank-row';
+      row.innerHTML = `<div class="pos">${i+1}</div><div class="name">${title}</div><div class="count">${count} airing${count>1?'s':''}</div>`;
+      rankList.appendChild(row);
+    });
+  }
+}
+
+function switchView(v){
+  state.view = v;
+  document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('active', b.dataset.view===v));
+  document.getElementById('dayView').style.display = v==='day' ? '' : 'none';
+  document.getElementById('monthView').style.display = v==='month' ? '' : 'none';
+  document.getElementById('dayNav').style.display = v==='day' ? '' : 'none';
+  document.getElementById('monthNav').style.display = v==='month' ? '' : 'none';
+  if (v==='day') loadDay(); else loadMonth();
+}
+
+function shiftDay(delta){
+  const d = new Date(state.date+'T00:00:00');
+  d.setDate(d.getDate()+delta);
+  state.date = isoOf(d);
+  loadDay();
+}
+function shiftMonth(delta){
+  const [y,m] = state.month.split('-').map(Number);
+  const d = new Date(y, m-1+delta, 1);
+  state.month = `${d.getFullYear()}-${PAD(d.getMonth()+1)}`;
+  loadMonth();
+}
+
+async function populateChannels(){
+  const sel = document.getElementById('channelSelect');
+  const channels = await sb('channels', { select: 'slug,name', order: 'name.asc' });
+  sel.innerHTML = channels.map(c => `<option value="${c.slug}">${c.name}</option>`).join('');
+  if (channels.some(c => c.slug === state.slug)) sel.value = state.slug;
+  else if (channels.length) state.slug = sel.value = channels[0].slug;
+  sel.addEventListener('change', () => { state.slug = sel.value; switchView(state.view); });
+}
+
+async function boot(){
+  const now = new Date();
+  state.date = isoOf(new Date(now.getTime() - 86400000));
+  state.month = `${now.getFullYear()}-${PAD(now.getMonth()+1)}`;
+
+  document.getElementById('statusTag').textContent = 'live';
+
+  await populateChannels();
+
+  document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => switchView(b.dataset.view)));
+  document.getElementById('prevDay').addEventListener('click', () => shiftDay(-1));
+  document.getElementById('nextDay').addEventListener('click', () => shiftDay(1));
+  document.getElementById('prevMonth').addEventListener('click', () => shiftMonth(-1));
+  document.getElementById('nextMonth').addEventListener('click', () => shiftMonth(1));
+
+  switchView('day');
+}
+boot();
+</script>
+</body>
+</html>
