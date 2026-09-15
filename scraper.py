@@ -266,6 +266,8 @@ def sb_headers(prefer=None):
 
 def sb_get(table, params):
     r = requests.get(f"{SUPABASE_URL}/rest/v1/{table}", headers=sb_headers(), params=params, timeout=30)
+    if not r.ok:
+        print(f"  Supabase GET {table} failed: {r.status_code} {r.text}")
     r.raise_for_status()
     return r.json()
 
@@ -394,6 +396,9 @@ def resolve_title(title, country, year):
 def main():
     target_date = date.today() - timedelta(days=1)
     print(f"Target date: {target_date.isoformat()}")
+    print(f"Supabase URL: {SUPABASE_URL}")
+    print(f"Service key length: {len(SUPABASE_SERVICE_KEY)} chars "
+          f"(starts with {SUPABASE_SERVICE_KEY[:6]!r})")
 
     scraped = 0
     skipped = 0
