@@ -99,9 +99,20 @@ TRAILING_FRACTION_RE = re.compile(r"(\d+/\d+)\.?\s*$")
 def strip_html(html: str) -> str:
     html = re.sub(r"<script.*?</script>", "", html, flags=re.S | re.I)
     html = re.sub(r"<style.*?</style>", "", html, flags=re.S | re.I)
-    text = re.sub(r"<[^>]+>", "\n", html)
+    # Mark block-level boundaries with a placeholder BEFORE collapsing whitespace --
+    # the raw HTML source has its own incidental newlines/indentation (meaningless
+    # formatting, e.g. one <a> cast-member link per source line) that must NOT be
+    # treated as real line breaks, so we collapse ALL whitespace to single spaces
+    # and only turn OUR placeholder back into real breaks afterward. Inline tags
+    # (i/b/strong/span/a/...) are stripped without any break at all -- the site
+    # wraps labels like "<i>Czas</i>: 50min." with the colon outside the tag, so
+    # breaking on every tag would split "Czas" from its own colon.
+    html = re.sub(r"</?(br|p|div|li|tr|h[1-6])[^>]*>", "\x00", html, flags=re.I)
+    text = re.sub(r"<[^>]+>", "", html)
     text = text.replace("&nbsp;", " ").replace("&amp;", "&")
     text = text.replace("&quot;", '"').replace("&#39;", "'")
+    text = re.sub(r"\s+", " ", text)
+    text = text.replace("\x00", "\n")
     lines = [l.strip() for l in text.split("\n")]
     lines = [l for l in lines if l]
     return "\n".join(lines)
@@ -152,7 +163,7 @@ def parse_entries(text: str):
         if not chunk_lines:
             continue
 
-        title_line = chunk_lines[0].strip()
+        title_line = re.sub(r"\s*\|\s*$", "", chunk_lines[0].strip()).strip()
         title = title_line
         series_info = None
         sm = SERIES_INFO_SUFFIX_RE.match(title_line)
@@ -189,7 +200,8 @@ def parse_entries(text: str):
         cast = None
         cm = CAST_RE.search(rest)
         if cm:
-            cast = re.sub(r"\s*,\s*", ", ", cm.group(1).strip())
+            cast = re.sub(r"\s*\|\s*$", "", cm.group(1).strip())
+            cast = re.sub(r"\s*,\s*", ", ", cast).strip()
 
         director = None
         dirm = DIRECTOR_RE.search(rest)
