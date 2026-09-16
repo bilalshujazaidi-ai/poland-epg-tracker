@@ -83,9 +83,81 @@ QUALIFYING_COUNTRY_RE = re.compile(
     re.IGNORECASE,
 )
 
-SERIES_INFO_SUFFIX_RE = re.compile(
-    r"^(.*?)\s-\s((?:Seria|Sezon|sezon)\s+\d+,?\s*odc\.\s*\d+|[Oo]dc\.\s*\d+)$"
+PREMIERA_PREFIX_RE = re.compile(r"^Premiera\s+", re.IGNORECASE)
+ODC_MARKER_RE = re.compile(r"odc\.?\s*\d+", re.IGNORECASE)
+ODC_NUM_RE = re.compile(r"odc\.?\s*(\d+)", re.IGNORECASE)
+SEASON_WORD_RE = re.compile(r"(?:sez\.?|sezon|seria)\s*([IVXLCDM]+|\d+)", re.IGNORECASE)
+SEASON_TAIL_STRIP_RE = re.compile(
+    r"[\s:,\-]*(?:sez\.?|sezon|seria)\s*(?:[IVXLCDM]+|\d+)\s*,?\s*$", re.IGNORECASE
 )
+TRAILING_PUNCT_RE = re.compile(r"[\s:,\-]+$")
+BARE_TRAILING_SEASON_RE = re.compile(r"\s+([IVXLCDM]+|\d+)$")
+REDUNDANT_EPISODE_SUBTITLE_RE = re.compile(r":\s*Odcinek\s*\d+\s*$", re.IGNORECASE)
+
+_ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+
+
+def _season_number(raw: str):
+    if raw.isdigit():
+        return int(raw)
+    total, prev = 0, 0
+    for ch in reversed(raw.upper()):
+        val = _ROMAN_VALUES.get(ch)
+        if val is None:
+            return None
+        total = total - val if val < prev else total + val
+        prev = max(prev, val)
+    return total or None
+
+
+def split_title_and_series(title_line: str):
+    """Split a raw title line into (clean_title, series_info_or_None).
+
+    Handles the several shapes this site uses for season/episode markers:
+    "Title - Seria N, odc. M", "Title: Subtitle, sez. N, odc. M" (the episode
+    subtitle after the colon is deliberately left attached to the title rather
+    than guessed-and-stripped -- blindly splitting on the first colon caused
+    real mismatches, e.g. turning "NCIS: Sydney" into generic "NCIS"), a bare
+    trailing roman numeral or digit used as a season with NO separator at all
+    ("Rekrut V", "Bestia 2"), and a leading "Premiera " badge the site adds to
+    premiere episodes (not part of the show's name).
+    """
+    t = PREMIERA_PREFIX_RE.sub("", title_line.strip())
+
+    episode_num = None
+    m = ODC_NUM_RE.search(t)
+    if m:
+        episode_num = m.group(1)
+        t = t[: m.start()]
+
+    season_num = None
+    sm = SEASON_WORD_RE.search(t)
+    if sm:
+        season_num = _season_number(sm.group(1))
+    t = SEASON_TAIL_STRIP_RE.sub("", t)
+    t = TRAILING_PUNCT_RE.sub("", t).strip()
+
+    if episode_num is not None and season_num is None:
+        bm = BARE_TRAILING_SEASON_RE.search(t)
+        if bm:
+            season_num = _season_number(bm.group(1))
+            t = BARE_TRAILING_SEASON_RE.sub("", t).strip()
+
+    # "Odcinek N" ("Episode N") as the ENTIRE trailing colon-subtitle is always
+    # redundant restating of the episode number, never part of the real show
+    # name -- unlike an arbitrary subtitle (which we deliberately leave alone,
+    # see the docstring), this specific pattern is safe to drop unconditionally.
+    t = REDUNDANT_EPISODE_SUBTITLE_RE.sub("", t).strip()
+
+    if not t:
+        t = title_line.strip()
+
+    if episode_num is None:
+        return t, None
+    if season_num:
+        return t, f"Sezon {season_num}, odc. {episode_num}"
+    return t, f"odc. {episode_num}"
+
 
 TIME_LINE_RE = re.compile(r"(?m)^(\d{2}:\d{2})\s+(.+)$")
 PAREN_RE = re.compile(r"\(([^)]*)\)")
@@ -164,11 +236,7 @@ def parse_entries(text: str):
             continue
 
         title_line = re.sub(r"\s*\|\s*$", "", chunk_lines[0].strip()).strip()
-        title = title_line
-        series_info = None
-        sm = SERIES_INFO_SUFFIX_RE.match(title_line)
-        if sm:
-            title, series_info = sm.group(1).strip(), sm.group(2).strip()
+        title, series_info = split_title_and_series(title_line)
 
         rest = "\n".join(chunk_lines[1:])
 
@@ -336,20 +404,32 @@ def tmdb_external_ids(kind, tmdb_id):
 
 
 def pick_best(results, date_field, iso_country, entry_year):
+    if not results:
+        return None
+
+    candidates = results
     if iso_country:
-        matching = [r for r in results if iso_country in (r.get("origin_country") or [])]
+        matching = [r for r in candidates if iso_country in (r.get("origin_country") or [])]
         if matching:
-            results = matching
+            candidates = matching
 
     def year_of(r):
         d = r.get(date_field) or ""
         return int(d[:4]) if d[:4].isdigit() else None
 
-    dated = [(r, year_of(r)) for r in results if year_of(r) and year_of(r) <= entry_year]
+    dated = [(r, year_of(r)) for r in candidates if year_of(r) and year_of(r) <= entry_year]
     if dated:
         dated.sort(key=lambda t: entry_year - t[1])
         return dated[0][0]
-    return results[0] if results else None
+
+    # Neither country nor year narrowed it down. Only trust a plain top-result
+    # guess when exactly one candidate is left -- with several undated
+    # candidates still in play, guessing the top one is exactly how a generic
+    # title like "Bestia" or "FBI" ends up matched to some unrelated
+    # same-named show. No confident pick beats a wrong one.
+    if len(candidates) == 1:
+        return candidates[0]
+    return None
 
 
 def resolve_title(title, country, year):
@@ -360,16 +440,30 @@ def resolve_title(title, country, year):
         return row.get("imdb_url"), row.get("matched_original_name")
 
     iso = map_country_to_iso(country)
-    query = title
-    results = tmdb_search("tv", query)
-    if not results and " - " in title:
-        results = tmdb_search("tv", title.split(" - ")[0])
-    kind = "tv"
+
+    def try_query(query):
+        results = tmdb_search("tv", query)
+        kind = "tv"
+        if not results and " - " in query:
+            results = tmdb_search("tv", query.split(" - ")[0])
+        if not results:
+            results = tmdb_search("movie", query)
+            kind = "movie"
+            if not results and " - " in query:
+                results = tmdb_search("movie", query.split(" - ")[0])
+        return kind, results
+
+    kind, results = try_query(title)
     if not results:
-        results = tmdb_search("movie", query)
-        kind = "movie"
-        if not results and " - " in title:
-            results = tmdb_search("movie", title.split(" - ")[0])
+        # A bare trailing roman numeral/digit with no season word (e.g. "Rekrut V",
+        # "Bestia 2") sometimes confuses TMDb's search -- retry without it. Whatever
+        # comes back still goes through pick_best()'s country/year disambiguation
+        # below, same as the first attempt -- never take a blind top result, that's
+        # what caused wrong matches (generic short titles like "Bestia"/"FBI"/"Lady"
+        # have many unrelated same-named entries worldwide).
+        alt = BARE_TRAILING_SEASON_RE.sub("", title).strip()
+        if alt and alt != title:
+            kind, results = try_query(alt)
 
     imdb_url = None
     original_name = None
