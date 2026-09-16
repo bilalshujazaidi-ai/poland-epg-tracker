@@ -409,17 +409,26 @@ def tmdb_external_ids(kind, tmdb_id):
     return r.json()
 
 
-def pick_best(results, date_field, iso_country, entry_year):
-    if not results:
-        return None
+def pick_best(candidates, iso_country, entry_year):
+    """candidates: list of (result_dict, kind) pairs, kind in {"tv", "movie"}.
+    Pooling both kinds together (rather than committing to whichever kind's
+    search happened to return results first) matters because a real movie
+    can otherwise get permanently matched against an unrelated same-named TV
+    show -- see the "Diuna"/Dune and "The Lost City" cases from the
+    2026-09-16 historical audit, where the movie search was never even
+    attempted since the TV search hadn't come back empty.
+    """
+    if not candidates:
+        return None, None
 
-    candidates = results
+    pool = candidates
     if iso_country:
-        matching = [r for r in candidates if iso_country in (r.get("origin_country") or [])]
+        matching = [(r, k) for r, k in pool if iso_country in (r.get("origin_country") or [])]
         if matching:
-            candidates = matching
+            pool = matching
 
-    def year_of(r):
+    def year_of(r, k):
+        date_field = "first_air_date" if k == "tv" else "release_date"
         d = r.get(date_field) or ""
         return int(d[:4]) if d[:4].isdigit() else None
 
@@ -430,19 +439,21 @@ def pick_best(results, date_field, iso_country, entry_year):
     # same-named show that happens to satisfy year <= entry_year (e.g. our
     # scraped 2023 for "Truelove" (2024) matching an unrelated "True Love"
     # (2012) instead, since 2024 was excluded outright).
-    dated = [(r, year_of(r)) for r in candidates if year_of(r) is not None]
+    dated = [(r, k, year_of(r, k)) for r, k in pool if year_of(r, k) is not None]
     if dated:
-        dated.sort(key=lambda t: abs(entry_year - t[1]))
-        return dated[0][0]
+        dated.sort(key=lambda t: abs(entry_year - t[2]))
+        r, k, _ = dated[0]
+        return r, k
 
     # Neither country nor year narrowed it down. Only trust a plain top-result
     # guess when exactly one candidate is left -- with several undated
     # candidates still in play, guessing the top one is exactly how a generic
     # title like "Bestia" or "FBI" ends up matched to some unrelated
     # same-named show. No confident pick beats a wrong one.
-    if len(candidates) == 1:
-        return candidates[0]
-    return None
+    if len(pool) == 1:
+        r, k = pool[0]
+        return r, k
+    return None, None
 
 
 def resolve_title(title, country, year):
@@ -454,20 +465,21 @@ def resolve_title(title, country, year):
 
     iso = map_country_to_iso(country)
 
-    def try_query(query):
-        results = tmdb_search("tv", query)
-        kind = "tv"
-        if not results and " - " in query:
-            results = tmdb_search("tv", query.split(" - ")[0])
-        if not results:
-            results = tmdb_search("movie", query)
-            kind = "movie"
-            if not results and " - " in query:
-                results = tmdb_search("movie", query.split(" - ")[0])
-        return kind, results
+    def gather(query):
+        # Always search both catalogs and let pick_best() choose across the
+        # combined pool -- searching movie only as a fallback-on-empty-tv
+        # means a real movie with the same title as some unrelated TV show
+        # never gets a chance to compete for the match at all.
+        candidates = [(r, "tv") for r in tmdb_search("tv", query)]
+        candidates += [(r, "movie") for r in tmdb_search("movie", query)]
+        if not candidates and " - " in query:
+            base = query.split(" - ")[0]
+            candidates = [(r, "tv") for r in tmdb_search("tv", base)]
+            candidates += [(r, "movie") for r in tmdb_search("movie", base)]
+        return candidates
 
-    kind, results = try_query(title)
-    if not results:
+    candidates = gather(title)
+    if not candidates:
         # A bare trailing roman numeral/digit with no season word (e.g. "Rekrut V",
         # "Bestia 2") sometimes confuses TMDb's search -- retry without it. Whatever
         # comes back still goes through pick_best()'s country/year disambiguation
@@ -476,16 +488,16 @@ def resolve_title(title, country, year):
         # have many unrelated same-named entries worldwide).
         alt = BARE_TRAILING_SEASON_RE.sub("", title).strip()
         if alt and alt != title:
-            kind, results = try_query(alt)
+            candidates = gather(alt)
 
     imdb_url = None
     original_name = None
     tmdb_id = None
     imdb_id = None
+    kind = None
 
-    if results:
-        date_field = "first_air_date" if kind == "tv" else "release_date"
-        best = pick_best(results, date_field, iso, year or 2100)
+    if candidates:
+        best, kind = pick_best(candidates, iso, year or 2100)
         if best:
             tmdb_id = best["id"]
             original_name = best.get("original_name") or best.get("original_title")
@@ -499,7 +511,7 @@ def resolve_title(title, country, year):
         "title": title,
         "country": iso,
         "tmdb_id": tmdb_id,
-        "tmdb_type": kind if results else None,
+        "tmdb_type": kind,
         "imdb_id": imdb_id,
         "imdb_url": imdb_url,
         "matched_original_name": original_name,
