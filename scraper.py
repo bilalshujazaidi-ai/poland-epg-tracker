@@ -423,9 +423,16 @@ def pick_best(results, date_field, iso_country, entry_year):
         d = r.get(date_field) or ""
         return int(d[:4]) if d[:4].isdigit() else None
 
-    dated = [(r, year_of(r)) for r in candidates if year_of(r) and year_of(r) <= entry_year]
+    # Score by closest year in either direction, not just closest-below --
+    # the scraped year (often a production/original-release year) can trail
+    # the actual first-air-date by a year, and a below-only filter would drop
+    # the real match entirely, silently falling back to an unrelated
+    # same-named show that happens to satisfy year <= entry_year (e.g. our
+    # scraped 2023 for "Truelove" (2024) matching an unrelated "True Love"
+    # (2012) instead, since 2024 was excluded outright).
+    dated = [(r, year_of(r)) for r in candidates if year_of(r) is not None]
     if dated:
-        dated.sort(key=lambda t: entry_year - t[1])
+        dated.sort(key=lambda t: abs(entry_year - t[1]))
         return dated[0][0]
 
     # Neither country nor year narrowed it down. Only trust a plain top-result
