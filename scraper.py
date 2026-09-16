@@ -84,11 +84,15 @@ QUALIFYING_COUNTRY_RE = re.compile(
 )
 
 PREMIERA_PREFIX_RE = re.compile(r"^Premiera\s+", re.IGNORECASE)
-ODC_MARKER_RE = re.compile(r"odc\.?\s*\d+", re.IGNORECASE)
-ODC_NUM_RE = re.compile(r"odc\.?\s*(\d+)", re.IGNORECASE)
-SEASON_WORD_RE = re.compile(r"(?:sez\.?|sezon|seria)\s*([IVXLCDM]+|\d+)", re.IGNORECASE)
+# Matches just the "odc." marker itself -- what follows varies (a bare number,
+# a number in parens, or occasionally a quoted episode name with no number at
+# all, e.g. odc. "Pusia") so the number is extracted separately, right after
+# locating this marker.
+ODC_ANY_RE = re.compile(r"odc\.", re.IGNORECASE)
+ODC_NUM_AFTER_RE = re.compile(r"^\s*\(?(\d+)\)?")
+SEASON_WORD_RE = re.compile(r"\b(?:sez\.?|sezon|seria|s\.)\s*([IVXLCDM]+|\d+)", re.IGNORECASE)
 SEASON_TAIL_STRIP_RE = re.compile(
-    r"[\s:,\-]*(?:sez\.?|sezon|seria)\s*(?:[IVXLCDM]+|\d+)\s*,?\s*$", re.IGNORECASE
+    r"[\s:,\-]*\b(?:sez\.?|sezon|seria|s\.)\s*(?:[IVXLCDM]+|\d+)[\s:,\-]*$", re.IGNORECASE
 )
 TRAILING_PUNCT_RE = re.compile(r"[\s:,\-]+$")
 BARE_TRAILING_SEASON_RE = re.compile(r"\s+([IVXLCDM]+|\d+)$")
@@ -125,9 +129,11 @@ def split_title_and_series(title_line: str):
     t = PREMIERA_PREFIX_RE.sub("", title_line.strip())
 
     episode_num = None
-    m = ODC_NUM_RE.search(t)
+    m = ODC_ANY_RE.search(t)
     if m:
-        episode_num = m.group(1)
+        num_m = ODC_NUM_AFTER_RE.match(t[m.end():])
+        if num_m:
+            episode_num = num_m.group(1)
         t = t[: m.start()]
 
     season_num = None
@@ -153,7 +159,7 @@ def split_title_and_series(title_line: str):
         t = title_line.strip()
 
     if episode_num is None:
-        return t, None
+        return t, (f"Sezon {season_num}" if season_num else None)
     if season_num:
         return t, f"Sezon {season_num}, odc. {episode_num}"
     return t, f"odc. {episode_num}"

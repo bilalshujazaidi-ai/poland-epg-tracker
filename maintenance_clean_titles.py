@@ -50,11 +50,17 @@ def sb_patch(table, row_id, data):
 
 
 def main():
+    # Re-run against every currently-unresolved entry rather than trying to
+    # build one precise filter for every messy-title shape (embedded "odc.",
+    # a leading "Premiera " badge on movies with no episode marker at all, the
+    # dot-abbreviated "s.XX" season form, etc.) -- split_title_and_series() is
+    # a safe no-op for a title that doesn't match any of those patterns, so
+    # this is just a thorough sweep, not a riskier one.
     rows = sb_get_all(
         "entries",
-        {"title": "ilike.*odc*", "select": "id,title,country,year,series_info,imdb_url"},
+        {"imdb_url": "is.null", "select": "id,title,country,year,series_info,imdb_url"},
     )
-    print(f"Found {len(rows)} entries with 'odc' in the title")
+    print(f"Found {len(rows)} unresolved entries to re-check")
 
     patched = 0
     newly_resolved = 0
