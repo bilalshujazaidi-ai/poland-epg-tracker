@@ -401,16 +401,56 @@ def tmdb_search(kind, query, language="pl-PL"):
     return r.json().get("results", [])
 
 
-def tmdb_external_ids(kind, tmdb_id):
-    url = f"https://api.themoviedb.org/3/{kind}/{tmdb_id}/external_ids"
-    r = requests.get(url, params={"api_key": TMDB_API_KEY}, timeout=20)
+def tmdb_details(kind, tmdb_id):
+    """Fetch external_ids and credits (cast/crew) in a single request -- both
+    are needed per candidate (imdb_id always; credits only when cross-
+    checking against scraped cast/director), so append_to_response avoids a
+    second round trip for the common case."""
+    url = f"https://api.themoviedb.org/3/{kind}/{tmdb_id}"
+    r = requests.get(url, params={"api_key": TMDB_API_KEY, "append_to_response": "credits,external_ids"}, timeout=20)
     if not r.ok:
         return {}
     return r.json()
 
 
-def pick_best(candidates, iso_country, entry_year):
+def normalize_name(name):
+    ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"\s+", " ", ascii_name).strip().lower()
+
+
+def scraped_name_list(raw):
+    if not raw:
+        return []
+    return [normalize_name(p) for p in raw.split(",") if p.strip()]
+
+
+def credits_overlap_score(details, scraped_cast, scraped_director):
+    """Count how many scraped cast/director names (already normalized) show
+    up in this TMDb candidate's actual credits. Director matches count for
+    more since a shared director is rarer to coincide with a wrong match
+    than a shared background cast member."""
+    if not scraped_cast and not scraped_director:
+        return 0
+
+    credits = details.get("credits") or {}
+    cast = credits.get("cast") or []
+    crew = credits.get("crew") or []
+    created_by = details.get("created_by") or []  # tv only
+
+    tmdb_cast = {normalize_name(p["name"]) for p in cast if p.get("name")}
+    tmdb_directors = {normalize_name(p["name"]) for p in crew if p.get("job") == "Director" and p.get("name")}
+    tmdb_directors |= {normalize_name(p["name"]) for p in created_by if p.get("name")}
+
+    cast_hits = len(set(scraped_cast) & tmdb_cast)
+    director_hits = len(set(scraped_director) & tmdb_directors)
+    return cast_hits + 3 * director_hits
+
+
+def rank_candidates(candidates, iso_country, entry_year):
     """candidates: list of (result_dict, kind) pairs, kind in {"tv", "movie"}.
+    Returns candidates ordered best-first (closest scraped year, in either
+    direction, to entry_year) so the caller can cross-check more than just
+    the top pick against scraped cast/director when there's ambiguity.
     Pooling both kinds together (rather than committing to whichever kind's
     search happened to return results first) matters because a real movie
     can otherwise get permanently matched against an unrelated same-named TV
@@ -419,7 +459,7 @@ def pick_best(candidates, iso_country, entry_year):
     attempted since the TV search hadn't come back empty.
     """
     if not candidates:
-        return None, None
+        return []
 
     pool = candidates
     if iso_country:
@@ -442,8 +482,7 @@ def pick_best(candidates, iso_country, entry_year):
     dated = [(r, k, year_of(r, k)) for r, k in pool if year_of(r, k) is not None]
     if dated:
         dated.sort(key=lambda t: abs(entry_year - t[2]))
-        r, k, _ = dated[0]
-        return r, k
+        return [(r, k) for r, k, _ in dated]
 
     # Neither country nor year narrowed it down. Only trust a plain top-result
     # guess when exactly one candidate is left -- with several undated
@@ -451,12 +490,17 @@ def pick_best(candidates, iso_country, entry_year):
     # title like "Bestia" or "FBI" ends up matched to some unrelated
     # same-named show. No confident pick beats a wrong one.
     if len(pool) == 1:
-        r, k = pool[0]
-        return r, k
-    return None, None
+        return pool
+    return []
 
 
-def resolve_title(title, country, year):
+# How many of the top year-ranked candidates to fetch full credits for when
+# cast/director cross-checking kicks in. Keeps the extra TMDb calls bounded
+# even for a very generic title with many same-named results.
+CREDITS_CHECK_LIMIT = 5
+
+
+def resolve_title(title, country, year, cast=None, director=None):
     slug = slugify(title)
     cached = sb_get("title_links", {"slug": f"eq.{slug}", "select": "*"})
     if cached:
@@ -496,15 +540,45 @@ def resolve_title(title, country, year):
     imdb_id = None
     kind = None
 
-    if candidates:
-        best, kind = pick_best(candidates, iso, year or 2100)
-        if best:
-            tmdb_id = best["id"]
-            original_name = best.get("original_name") or best.get("original_title")
-            ext = tmdb_external_ids(kind, tmdb_id)
-            imdb_id = ext.get("imdb_id")
-            if imdb_id:
-                imdb_url = f"https://www.imdb.com/title/{imdb_id}/"
+    ranked = rank_candidates(candidates, iso, year or 2100)
+    scraped_cast = scraped_name_list(cast)
+    scraped_director = scraped_name_list(director)
+
+    details_cache = {}
+
+    def get_details(k, tid):
+        key = (k, tid)
+        if key not in details_cache:
+            details_cache[key] = tmdb_details(k, tid)
+        return details_cache[key]
+
+    best, kind = None, None
+    if ranked:
+        best, kind = ranked[0]
+        # Only worth cross-checking cast/director when there's more than one
+        # year-plausible candidate to choose between, and we actually have
+        # scraped names to check against -- otherwise it's just a wasted
+        # TMDb call that can't change the outcome.
+        if len(ranked) > 1 and (scraped_cast or scraped_director):
+            scored = [
+                (credits_overlap_score(get_details(k, r["id"]), scraped_cast, scraped_director), r, k)
+                for r, k in ranked[:CREDITS_CHECK_LIMIT]
+            ]
+            # Stable sort: among equal (including zero) scores, the original
+            # closest-year ordering from rank_candidates() is preserved, so
+            # this only overrides the year-based pick when a candidate's
+            # actual cast or director genuinely matches what was scraped.
+            scored.sort(key=lambda t: -t[0])
+            if scored[0][0] > 0:
+                _, best, kind = scored[0]
+
+    if best:
+        tmdb_id = best["id"]
+        original_name = best.get("original_name") or best.get("original_title")
+        details = get_details(kind, tmdb_id)
+        imdb_id = (details.get("external_ids") or {}).get("imdb_id")
+        if imdb_id:
+            imdb_url = f"https://www.imdb.com/title/{imdb_id}/"
 
     sb_upsert("title_links", [{
         "slug": slug,
@@ -564,11 +638,11 @@ def main():
         distinct_titles = {}
         for e in surviving:
             if e["title"] not in distinct_titles:
-                distinct_titles[e["title"]] = (e["country"], e["year"])
+                distinct_titles[e["title"]] = (e["country"], e["year"], e["cast_list"], e["director"])
 
         resolved = {}
-        for title, (country, year) in distinct_titles.items():
-            imdb_url, original_name = resolve_title(title, country, year)
+        for title, (country, year, cast, director) in distinct_titles.items():
+            imdb_url, original_name = resolve_title(title, country, year, cast, director)
             resolved[title] = (imdb_url, original_name)
 
         rows = []
