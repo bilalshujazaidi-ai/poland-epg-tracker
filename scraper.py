@@ -88,7 +88,7 @@ PREMIERA_PREFIX_RE = re.compile(r"^Premiera\s+", re.IGNORECASE)
 # a number in parens, or occasionally a quoted episode name with no number at
 # all, e.g. odc. "Pusia") so the number is extracted separately, right after
 # locating this marker.
-ODC_ANY_RE = re.compile(r"odc\.", re.IGNORECASE)
+ODC_ANY_RE = re.compile(r"\bodc\.?(?=\s*\(?\d)", re.IGNORECASE)
 ODC_NUM_AFTER_RE = re.compile(r"^\s*\(?(\d+)\)?")
 SEASON_WORD_RE = re.compile(r"\b(?:sez\.?|sezon|seria|s\.)\s*([IVXLCDM]+|\d+)", re.IGNORECASE)
 SEASON_TAIL_STRIP_RE = re.compile(
@@ -500,12 +500,28 @@ def rank_candidates(candidates, iso_country, entry_year):
 CREDITS_CHECK_LIMIT = 5
 
 
-def resolve_title(title, country, year, cast=None, director=None):
+SKIP_RESOLUTION_GENRES = {"teleturniej"}
+
+
+def resolve_title(title, country, year, cast=None, director=None, genre=None):
     slug = slugify(title)
     cached = sb_get("title_links", {"slug": f"eq.{slug}", "select": "*"})
     if cached:
         row = cached[0]
         return row.get("imdb_url"), row.get("matched_original_name")
+
+    # Polish game shows essentially never have a meaningful per-episode IMDb
+    # identity -- attempting to match one against TMDb just produces a
+    # confident-looking false positive (a numbered episode's garbled title
+    # coincidentally matching an unrelated foreign film) instead of correctly
+    # finding nothing. Skip only AFTER the cache check, not before -- some
+    # game shows (e.g. "Postaw na milion") already have a genuinely correct
+    # cached match by exact title, and skipping unconditionally would throw
+    # that away too. This only prevents NEW risky lookups; see the
+    # "Va Banque" / "Koło fortuny" cases from the 2026-09-17 fresh-scrape
+    # check for real examples of the failure this avoids.
+    if genre and genre.strip().lower() in SKIP_RESOLUTION_GENRES:
+        return None, None
 
     iso = map_country_to_iso(country)
 
@@ -638,11 +654,11 @@ def main():
         distinct_titles = {}
         for e in surviving:
             if e["title"] not in distinct_titles:
-                distinct_titles[e["title"]] = (e["country"], e["year"], e["cast_list"], e["director"])
+                distinct_titles[e["title"]] = (e["country"], e["year"], e["cast_list"], e["director"], e["genre"])
 
         resolved = {}
-        for title, (country, year, cast, director) in distinct_titles.items():
-            imdb_url, original_name = resolve_title(title, country, year, cast, director)
+        for title, (country, year, cast, director, genre) in distinct_titles.items():
+            imdb_url, original_name = resolve_title(title, country, year, cast, director, genre)
             resolved[title] = (imdb_url, original_name)
 
         rows = []

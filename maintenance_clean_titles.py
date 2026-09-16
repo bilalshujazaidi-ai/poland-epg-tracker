@@ -58,7 +58,7 @@ def main():
     # this is just a thorough sweep, not a riskier one.
     rows = sb_get_all(
         "entries",
-        {"imdb_url": "is.null", "select": "id,title,country,year,series_info,imdb_url,cast_list,director"},
+        {"imdb_url": "is.null", "select": "id,title,country,year,series_info,imdb_url,cast_list,director,genre"},
     )
     print(f"Found {len(rows)} unresolved entries to re-check")
 
@@ -76,7 +76,7 @@ def main():
             continue
 
         imdb_url, original_name = resolve_title(
-            clean_title, row.get("country"), row.get("year"), row.get("cast_list"), row.get("director")
+            clean_title, row.get("country"), row.get("year"), row.get("cast_list"), row.get("director"), row.get("genre")
         )
 
         patch = {"title": clean_title, "series_info": series_info}
