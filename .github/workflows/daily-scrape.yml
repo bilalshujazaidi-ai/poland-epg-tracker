@@ -2,8 +2,13 @@ name: Daily EPG Scrape
 
 on:
   schedule:
-    # 08:00 UTC daily (~9-10am Poland time depending on DST)
-    - cron: "0 8 * * *"
+    # 08:12 UTC daily (~9-10am Poland time depending on DST). Deliberately NOT
+    # on the exact hour -- GitHub documents that scheduled workflows queued for
+    # the top of the hour are more likely to be delayed or dropped entirely
+    # during high load, since that's when the most schedules across all of
+    # GitHub fire at once. Confirmed happening to us on 2026-09-16 (the 08:00
+    # run never fired at all).
+    - cron: "12 8 * * *"
   workflow_dispatch:
     inputs:
       target_date:
