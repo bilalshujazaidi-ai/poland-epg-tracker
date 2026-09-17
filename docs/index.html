@@ -18,6 +18,9 @@
   --line:#E3DFD5;
   --warn:#B65C2E;
   --warn-soft:#F5E4D8;
+  --info:#3D6FA8;
+  --info-soft:#DDE7F2;
+  --info-ink:#1F3A5C;
   --shadow: 0 1px 2px rgba(30,33,29,.06), 0 8px 24px -16px rgba(30,33,29,.25);
 }
 @media (prefers-color-scheme: dark){
@@ -26,6 +29,7 @@
     --muted:#98A29B; --accent:#4FBFA8; --accent-ink:#DFF7F0;
     --accent-soft:rgba(79,191,168,.16); --line:#2B3134;
     --warn:#E08A54; --warn-soft:rgba(224,138,84,.16);
+    --info:#7FB0E0; --info-soft:rgba(127,176,224,.16); --info-ink:#DCEBFA;
     --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 28px -16px rgba(0,0,0,.6);
   }
 }
@@ -34,6 +38,7 @@
   --muted:#98A29B; --accent:#4FBFA8; --accent-ink:#DFF7F0;
   --accent-soft:rgba(79,191,168,.16); --line:#2B3134;
   --warn:#E08A54; --warn-soft:rgba(224,138,84,.16);
+  --info:#7FB0E0; --info-soft:rgba(127,176,224,.16); --info-ink:#DCEBFA;
   --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 28px -16px rgba(0,0,0,.6);
 }
 *{box-sizing:border-box;}
@@ -72,6 +77,8 @@ section{margin-bottom:34px;}
 .type-pill{display:inline-block;font:600 11px "IBM Plex Mono",monospace;letter-spacing:.03em;text-transform:uppercase;padding:3px 8px;border-radius:5px;white-space:nowrap;}
 .type-pill.movie{background:var(--surface-alt);color:var(--muted);}
 .type-pill.tv{background:var(--accent-soft);color:var(--accent-ink);}
+.type-pill.doc{background:var(--info-soft);color:var(--info-ink);}
+.type-pill.mag{background:var(--warn-soft);color:var(--warn);}
 .empty{padding:26px 0;color:var(--muted);font-size:14px;}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:22px;}
 .stat{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;}
@@ -195,16 +202,30 @@ function seriesEpisodeOf(e){
   return { series: series || '—', episode: episode || '—' };
 }
 
-// No explicit movie/show flag exists in the source data -- an entry with no
-// season/episode marker at all (and not a serial-type genre) is treated as
-// a standalone movie; anything with series/episode structure is a TV show.
+// No explicit type flag exists in the source data, but the scraped genre
+// text itself carries a reliable category word for most rows -- "film"
+// (movie), "dokument"/"dokumentalny" (documentary), "magazyn"/"felieton"/
+// "reportaż" (magazine/current-affairs), "teleturniej" (game show), or
+// "serial"/"telenowela"/etc. (TV show). Checked in this order because some
+// combined values need the more specific word to win (e.g. "film
+// dokumentalny" is a documentary, not a plain movie). Genres with no
+// decisive keyword (plain "dramat"/"akcja", or missing entirely) fall back
+// to the season/episode structure: an entry with no series/episode marker
+// at all is a standalone Movie, anything with that structure is a TV Show.
 function typeOf(e){
-  const { series, episode } = seriesEpisodeOf(e);
-  if (series !== '—' || episode !== '—') return 'TV Show';
   const genre = (e.genre || '').toLowerCase();
-  if (/serial|telenowela|teleturniej/.test(genre)) return 'TV Show';
-  return 'Movie';
+  if (/teleturniej|zabawa quizowa/.test(genre)) return 'Game Show';
+  if (/dokument|reporta|documentar/.test(genre)) return 'Documentary';
+  if (/magazyn|felieton|dyskusja|\brelacja\b|informator kulturalny|program publicystyczny/.test(genre)) return 'Magazine';
+  if (/\bfilm\b/.test(genre)) return 'Movie';
+  if (/serial|telenowela|sitcom|reality|widowisko|program rozrywkowy|talk-show|standup|rozrywka/.test(genre)) return 'TV Show';
+
+  const { series, episode } = seriesEpisodeOf(e);
+  return (series !== '—' || episode !== '—') ? 'TV Show' : 'Movie';
 }
+
+const TYPE_CLASS = { 'Movie':'movie', 'TV Show':'tv', 'Documentary':'doc', 'Magazine':'mag', 'Game Show':'tv' };
+const typePillHtml = type => `<span class="type-pill ${TYPE_CLASS[type]}">${type}</span>`;
 
 function renderEntry(e){
   const tr = document.createElement('tr');
@@ -215,7 +236,7 @@ function renderEntry(e){
     : `<a class="imdb-link unmatched" href="https://www.imdb.com/find/?q=${encodeURIComponent(e.title)}" target="_blank" rel="noopener">search ↗</a>`;
   tr.innerHTML = `
     <td class="t-title">${e.title}</td>
-    <td><span class="type-pill ${type==='Movie'?'movie':'tv'}">${type}</span></td>
+    <td>${typePillHtml(type)}</td>
     <td class="t-origname">${e.original_name || '—'}</td>
     <td class="num">${series}</td>
     <td class="num">${episode}</td>
@@ -265,16 +286,20 @@ async function loadMonth(){
   }
 
   const entryRows = await sb('entries', { channel_slug: `eq.${state.slug}`, date: `gte.${start}`, and: `(date.lte.${end})`, select: 'title,duration_min,series_info,episode_of,genre' });
-  let totalMinutes = 0, titleCounts = {}, titleType = {}, movieCount = 0, tvCount = 0;
+  let totalMinutes = 0, titleCounts = {}, titleType = {}, typeCounts = {};
   entryRows.forEach(e => {
     totalMinutes += e.duration_min || 0;
     titleCounts[e.title] = (titleCounts[e.title]||0) + 1;
     const t = typeOf(e);
     if (!(e.title in titleType)) titleType[e.title] = t;
-    if (t === 'Movie') movieCount++; else tvCount++;
+    typeCounts[t] = (typeCounts[t]||0) + 1;
   });
 
-  [['Days logged', `${loggedDates.size} / ${total}`], ['Programmes', entryRows.length], ['Movies', movieCount], ['TV shows', tvCount], ['Hours aired', (totalMinutes/60).toFixed(1)]]
+  const TYPE_PLURAL = { 'Movie':'Movies', 'TV Show':'TV Shows', 'Documentary':'Documentaries', 'Magazine':'Magazines', 'Game Show':'Game Shows' };
+  const TYPE_ORDER = ['Movie','TV Show','Documentary','Magazine','Game Show'];
+  const typeStats = TYPE_ORDER.filter(t => typeCounts[t]).map(t => [typeCounts[t]===1 ? t : TYPE_PLURAL[t], typeCounts[t]]);
+
+  [['Days logged', `${loggedDates.size} / ${total}`], ['Programmes', entryRows.length], ...typeStats, ['Hours aired', (totalMinutes/60).toFixed(1)]]
     .forEach(([l,n]) => {
       const s = document.createElement('div'); s.className='stat';
       s.innerHTML = `<div class="n">${n}</div><div class="l">${l}</div>`;
@@ -286,9 +311,8 @@ async function loadMonth(){
     rankList.innerHTML = '<div class="empty">No entries logged yet this month.</div>';
   } else {
     ranked.forEach(([title,count],i) => {
-      const type = titleType[title];
       const row = document.createElement('div'); row.className='rank-row';
-      row.innerHTML = `<div class="pos">${i+1}</div><div class="name">${title} <span class="type-pill ${type==='Movie'?'movie':'tv'}">${type}</span></div><div class="count">${count} airing${count>1?'s':''}</div>`;
+      row.innerHTML = `<div class="pos">${i+1}</div><div class="name">${title} ${typePillHtml(titleType[title])}</div><div class="count">${count} airing${count>1?'s':''}</div>`;
       rankList.appendChild(row);
     });
   }
