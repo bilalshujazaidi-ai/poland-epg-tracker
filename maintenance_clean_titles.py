@@ -75,7 +75,7 @@ def main():
             unchanged += 1
             continue
 
-        imdb_url, original_name = resolve_title(
+        imdb_url, original_name, origin_name = resolve_title(
             clean_title, row.get("country"), row.get("year"), row.get("cast_list"), row.get("director"), row.get("genre")
         )
 
@@ -83,6 +83,8 @@ def main():
         if imdb_url:
             patch["imdb_url"] = imdb_url
             patch["original_name"] = original_name
+        if not row.get("country") and origin_name:
+            patch["country"] = origin_name
 
         if sb_patch("entries", row["id"], patch):
             patched += 1

@@ -77,6 +77,15 @@ COUNTRY_TO_ISO = {
     "iceland": "IS",
 }
 
+ISO_TO_COUNTRY_NAME = {
+    "US": "USA", "GB": "UK", "CA": "Canada", "AU": "Australia", "PL": "Poland",
+    "DE": "Germany", "FR": "France", "IT": "Italy", "ES": "Spain", "IE": "Ireland",
+    "SE": "Sweden", "NO": "Norway", "DK": "Denmark", "BE": "Belgium", "NL": "Netherlands",
+    "AT": "Austria", "CH": "Switzerland", "RU": "Russia", "CZ": "Czech Republic",
+    "NZ": "New Zealand", "IN": "India", "JP": "Japan", "KR": "South Korea",
+    "CN": "China", "BG": "Bulgaria", "IS": "Iceland",
+}
+
 QUALIFYING_COUNTRY_RE = re.compile(
     r"\busa\b|united states|\bus\b|\buk\b|united kingdom|wielka brytania|"
     r"canada|kanada|australia",
@@ -503,12 +512,32 @@ CREDITS_CHECK_LIMIT = 5
 SKIP_RESOLUTION_GENRES = {"teleturniej"}
 
 
+def tmdb_origin_iso(kind, best, details):
+    """Best-effort origin country, straight from data already fetched for
+    this candidate -- no extra TMDb call needed. TV search results (and
+    details) carry origin_country directly; movie details carry
+    production_countries instead (movies have no such field in search
+    results, only in the full details response we already pulled for the
+    imdb_id lookup)."""
+    if kind == "tv":
+        oc = best.get("origin_country") or details.get("origin_country") or []
+        return oc[0] if oc else None
+    pc = details.get("production_countries") or []
+    return pc[0]["iso_3166_1"] if pc else None
+
+
 def resolve_title(title, country, year, cast=None, director=None, genre=None):
     slug = slugify(title)
     cached = sb_get("title_links", {"slug": f"eq.{slug}", "select": "*"})
     if cached:
         row = cached[0]
-        return row.get("imdb_url"), row.get("matched_original_name")
+        # The source page didn't state an origin for this scrape, but we may
+        # already have one on file from TMDb (backfilled the first time this
+        # title was ever resolved) -- offer it up so the caller can fill the
+        # gap. Only relevant when THIS run's scrape genuinely had no country;
+        # if it did, that's the source of truth and nothing here overrides it.
+        origin_name = None if country else ISO_TO_COUNTRY_NAME.get(row.get("country"))
+        return row.get("imdb_url"), row.get("matched_original_name"), origin_name
 
     # Polish game shows essentially never have a meaningful per-episode IMDb
     # identity -- attempting to match one against TMDb just produces a
@@ -588,6 +617,7 @@ def resolve_title(title, country, year, cast=None, director=None, genre=None):
             if scored[0][0] > 0:
                 _, best, kind = scored[0]
 
+    origin_name = None
     if best:
         tmdb_id = best["id"]
         original_name = best.get("original_name") or best.get("original_title")
@@ -595,6 +625,13 @@ def resolve_title(title, country, year, cast=None, director=None, genre=None):
         imdb_id = (details.get("external_ids") or {}).get("imdb_id")
         if imdb_id:
             imdb_url = f"https://www.imdb.com/title/{imdb_id}/"
+        if not iso:
+            # The scraped page had no origin for this title at all -- TMDb's
+            # own country data for the matched title is a reasonable stand-in,
+            # and we're already holding these fields from the lookup above,
+            # so this costs nothing extra.
+            iso = tmdb_origin_iso(kind, best, details)
+            origin_name = ISO_TO_COUNTRY_NAME.get(iso)
 
     sb_upsert("title_links", [{
         "slug": slug,
@@ -607,7 +644,7 @@ def resolve_title(title, country, year, cast=None, director=None, genre=None):
         "matched_original_name": original_name,
     }], on_conflict="slug")
 
-    return imdb_url, original_name
+    return imdb_url, original_name, origin_name
 
 
 # ---------------------------------------------------------------------------
@@ -658,12 +695,12 @@ def main():
 
         resolved = {}
         for title, (country, year, cast, director, genre) in distinct_titles.items():
-            imdb_url, original_name = resolve_title(title, country, year, cast, director, genre)
-            resolved[title] = (imdb_url, original_name)
+            imdb_url, original_name, origin_name = resolve_title(title, country, year, cast, director, genre)
+            resolved[title] = (imdb_url, original_name, origin_name)
 
         rows = []
         for e in surviving:
-            imdb_url, original_name = resolved[e["title"]]
+            imdb_url, original_name, origin_name = resolved[e["title"]]
             rows.append({
                 "channel_slug": slug,
                 "date": target_date.isoformat(),
@@ -671,7 +708,7 @@ def main():
                 "title": e["title"],
                 "series_info": e["series_info"],
                 "genre": e["genre"],
-                "country": e["country"],
+                "country": e["country"] or origin_name,
                 "year": e["year"],
                 "duration_min": e["duration_min"],
                 "cast_list": e["cast_list"],
