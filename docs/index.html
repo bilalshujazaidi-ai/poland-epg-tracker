@@ -58,6 +58,7 @@ select{font:500 13px "IBM Plex Sans",sans-serif;color:var(--ink);background:var(
 .datepick button{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:14px;line-height:1;}
 .datepick .cur{min-width:118px;text-align:center;font-weight:600;}
 .eyebrow{font:600 11px/1 "IBM Plex Mono",monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;}
+.filter-note{font:500 12px "IBM Plex Mono",monospace;color:var(--muted);margin:-6px 0 14px;}
 section{margin-bottom:34px;}
 .ledger{border-top:1px solid var(--line);overflow-x:auto;}
 .sched-table{width:100%;border-collapse:collapse;font-size:14px;min-width:700px;}
@@ -133,6 +134,7 @@ footer a{color:var(--accent);}
 
   <section id="dayView">
     <p class="eyebrow">Broadcast day (06:00 – 05:59)</p>
+    <p class="filter-note">Showing: US / UK / Canada / Australia origin · 2018 onward · Movies &amp; TV Shows only</p>
     <div class="ledger">
       <table class="sched-table">
         <thead>
@@ -160,6 +162,7 @@ footer a{color:var(--accent);}
       <span><span class="dot" style="background:var(--warn-soft)"></span>gap (not yet scraped)</span>
     </div>
     <div class="cal" id="calGrid"></div>
+    <p class="filter-note">Stats and ranking below: US / UK / Canada / Australia origin · 2018 onward · Movies &amp; TV Shows only</p>
     <div class="stats" id="statGrid"></div>
     <p class="eyebrow">Most-aired titles</p>
     <div class="rank" id="rankList"></div>
@@ -227,6 +230,23 @@ function typeOf(e){
 const TYPE_CLASS = { 'Movie':'movie', 'TV Show':'tv', 'Documentary':'doc', 'Magazine':'mag', 'Game Show':'tv' };
 const typePillHtml = type => `<span class="type-pill ${TYPE_CLASS[type]}">${type}</span>`;
 
+// Dashboard-level view filter -- narrows what's DISPLAYED, not what's stored.
+// Same qualifying-country wording the scraper itself uses, but here a blank
+// origin no longer passes (unlike the scraper's own scope filter, which
+// deliberately lets blank-origin entries through): now that origin gets
+// backfilled from TMDb whenever a title resolves, a still-blank country
+// means either no IMDb match was found or the film/show is genuinely
+// foreign, and this view only wants confirmed US/UK/Canada/Australia
+// content, post-2018, and not Documentary/Magazine/Game Show.
+const QUALIFYING_COUNTRY_RE = /\busa\b|united states|\bus\b|\buk\b|united kingdom|wielka brytania|canada|kanada|australia/i;
+const EXCLUDED_TYPES = new Set(['Documentary','Magazine','Game Show']);
+function inScope(e){
+  if (!e.year || e.year < 2018) return false;
+  if (!e.country || !QUALIFYING_COUNTRY_RE.test(e.country)) return false;
+  if (EXCLUDED_TYPES.has(typeOf(e))) return false;
+  return true;
+}
+
 function renderEntry(e){
   const tr = document.createElement('tr');
   const { series, episode } = seriesEpisodeOf(e);
@@ -257,7 +277,12 @@ async function loadDay(){
     ledger.innerHTML = `<tr><td colspan="9" class="empty">No listing logged for ${state.date} yet.</td></tr>`;
     return;
   }
-  rows.forEach(e => ledger.appendChild(renderEntry(e)));
+  const shown = rows.filter(inScope);
+  if (!shown.length){
+    ledger.innerHTML = `<tr><td colspan="9" class="empty">${rows.length} entries logged for ${state.date}, but none match this view's filter (US/UK/Canada/Australia, 2018+, Movies & TV Shows only).</td></tr>`;
+    return;
+  }
+  shown.forEach(e => ledger.appendChild(renderEntry(e)));
 }
 
 async function loadMonth(){
@@ -285,9 +310,10 @@ async function loadMonth(){
     calGrid.appendChild(cell);
   }
 
-  const entryRows = await sb('entries', { channel_slug: `eq.${state.slug}`, date: `gte.${start}`, and: `(date.lte.${end})`, select: 'title,duration_min,series_info,episode_of,genre' });
+  const entryRows = await sb('entries', { channel_slug: `eq.${state.slug}`, date: `gte.${start}`, and: `(date.lte.${end})`, select: 'title,duration_min,series_info,episode_of,genre,year,country' });
+  const shown = entryRows.filter(inScope);
   let totalMinutes = 0, titleCounts = {}, titleType = {}, typeCounts = {};
-  entryRows.forEach(e => {
+  shown.forEach(e => {
     totalMinutes += e.duration_min || 0;
     titleCounts[e.title] = (titleCounts[e.title]||0) + 1;
     const t = typeOf(e);
@@ -299,7 +325,7 @@ async function loadMonth(){
   const TYPE_ORDER = ['Movie','TV Show','Documentary','Magazine','Game Show'];
   const typeStats = TYPE_ORDER.filter(t => typeCounts[t]).map(t => [typeCounts[t]===1 ? t : TYPE_PLURAL[t], typeCounts[t]]);
 
-  [['Days logged', `${loggedDates.size} / ${total}`], ['Programmes', entryRows.length], ...typeStats, ['Hours aired', (totalMinutes/60).toFixed(1)]]
+  [['Days logged', `${loggedDates.size} / ${total}`], ['Programmes', shown.length], ...typeStats, ['Hours aired', (totalMinutes/60).toFixed(1)]]
     .forEach(([l,n]) => {
       const s = document.createElement('div'); s.className='stat';
       s.innerHTML = `<div class="n">${n}</div><div class="l">${l}</div>`;
