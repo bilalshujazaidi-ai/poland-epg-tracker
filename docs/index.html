@@ -276,30 +276,27 @@ async function loadDay(){
   const isAll = state.slug === ALL_CHANNELS;
   document.getElementById('schedTable').classList.toggle('all-mode', isAll);
   document.getElementById('dayEyebrow').textContent = isAll
-    ? 'Premieres today, across every channel'
+    ? 'Full schedule today, every channel combined'
     : 'Broadcast day (06:00 – 05:59)';
   document.getElementById('curDate').textContent = dayLabel(new Date(state.date+'T00:00:00'));
   ledger.innerHTML = '<tr><td colspan="10" class="empty">Loading…</td></tr>';
 
-  // "ALL" isn't every entry from every channel (that'd be hundreds of rows
-  // with no single sort order that means anything) -- it's specifically a
-  // premieres digest: episode 1 of something, wherever it's airing today.
-  // episode_of is stored as "current/total" (e.g. "1/6"), so a premiere is
-  // any entry whose numerator is 1.
+  // "ALL" is every entry from every channel for this date, unfiltered by
+  // title -- exactly what's in the source data, not deduplicated or
+  // narrowed to premieres. The origin/year/type filter below still applies,
+  // same as the per-channel view.
   const params = isAll
-    ? { date: `eq.${state.date}`, episode_of: 'like.1/*', select: '*', order: 'time.asc' }
+    ? { date: `eq.${state.date}`, select: '*', order: 'time.asc' }
     : { channel_slug: `eq.${state.slug}`, date: `eq.${state.date}`, select: '*', order: 'time.asc' };
   const rows = await sb('entries', params);
   ledger.innerHTML = '';
   if (!rows.length){
-    ledger.innerHTML = isAll
-      ? `<tr><td colspan="10" class="empty">No premieres logged for ${state.date}.</td></tr>`
-      : `<tr><td colspan="10" class="empty">No listing logged for ${state.date} yet.</td></tr>`;
+    ledger.innerHTML = `<tr><td colspan="10" class="empty">No listing logged for ${state.date} yet.</td></tr>`;
     return;
   }
   const shown = rows.filter(inScope);
   if (!shown.length){
-    ledger.innerHTML = `<tr><td colspan="10" class="empty">${rows.length} ${isAll ? 'premieres' : 'entries'} logged for ${state.date}, but none match this view's filter (US/UK/Canada/Australia, 2018+, Movies & TV Shows only).</td></tr>`;
+    ledger.innerHTML = `<tr><td colspan="10" class="empty">${rows.length} entries logged for ${state.date}, but none match this view's filter (US/UK/Canada/Australia, 2018+, Movies & TV Shows only).</td></tr>`;
     return;
   }
   shown.forEach(e => ledger.appendChild(renderEntry(e)));
@@ -313,7 +310,7 @@ async function loadMonth(){
   calGrid.innerHTML = ''; statGrid.innerHTML = ''; rankList.innerHTML = '';
 
   if (state.slug === ALL_CHANNELS){
-    rankList.innerHTML = '<div class="empty">Month rollup is per-channel — pick a specific channel above. "ALL" is only for the Day log\'s premieres list.</div>';
+    rankList.innerHTML = '<div class="empty">Month rollup is per-channel — pick a specific channel above. "ALL" is only for the Day log\'s combined schedule.</div>';
     return;
   }
 
@@ -400,7 +397,7 @@ async function populateChannels(){
   const sel = document.getElementById('channelSelect');
   const channels = await sb('channels', { select: 'slug,name', order: 'name.asc' });
   CHANNEL_NAMES = Object.fromEntries(channels.map(c => [c.slug, c.name]));
-  const options = [`<option value="${ALL_CHANNELS}">ALL — Premieres across every channel</option>`]
+  const options = [`<option value="${ALL_CHANNELS}">ALL — Every channel combined</option>`]
     .concat(channels.map(c => `<option value="${c.slug}">${c.name}</option>`));
   sel.innerHTML = options.join('');
   if (channels.some(c => c.slug === state.slug)) sel.value = state.slug;
