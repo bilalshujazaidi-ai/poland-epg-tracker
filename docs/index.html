@@ -69,6 +69,9 @@ section{margin-bottom:34px;}
 .imdb-link{font:600 12px "IBM Plex Sans",sans-serif;color:var(--accent);text-decoration:none;white-space:nowrap;}
 .imdb-link:hover{text-decoration:underline;}
 .imdb-link.unmatched{color:var(--muted);font-weight:500;}
+.type-pill{display:inline-block;font:600 11px "IBM Plex Mono",monospace;letter-spacing:.03em;text-transform:uppercase;padding:3px 8px;border-radius:5px;white-space:nowrap;}
+.type-pill.movie{background:var(--surface-alt);color:var(--muted);}
+.type-pill.tv{background:var(--accent-soft);color:var(--accent-ink);}
 .empty{padding:26px 0;color:var(--muted);font-size:14px;}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:22px;}
 .stat{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;}
@@ -128,6 +131,7 @@ footer a{color:var(--accent);}
         <thead>
           <tr>
             <th>Title</th>
+            <th>Type</th>
             <th>Original name</th>
             <th class="num">Series</th>
             <th class="num">Episode</th>
@@ -191,14 +195,27 @@ function seriesEpisodeOf(e){
   return { series: series || '—', episode: episode || '—' };
 }
 
+// No explicit movie/show flag exists in the source data -- an entry with no
+// season/episode marker at all (and not a serial-type genre) is treated as
+// a standalone movie; anything with series/episode structure is a TV show.
+function typeOf(e){
+  const { series, episode } = seriesEpisodeOf(e);
+  if (series !== '—' || episode !== '—') return 'TV Show';
+  const genre = (e.genre || '').toLowerCase();
+  if (/serial|telenowela|teleturniej/.test(genre)) return 'TV Show';
+  return 'Movie';
+}
+
 function renderEntry(e){
   const tr = document.createElement('tr');
   const { series, episode } = seriesEpisodeOf(e);
+  const type = typeOf(e);
   const imdbCell = e.imdb_url
     ? `<a class="imdb-link" href="${e.imdb_url}" target="_blank" rel="noopener">IMDb ↗</a>`
     : `<a class="imdb-link unmatched" href="https://www.imdb.com/find/?q=${encodeURIComponent(e.title)}" target="_blank" rel="noopener">search ↗</a>`;
   tr.innerHTML = `
     <td class="t-title">${e.title}</td>
+    <td><span class="type-pill ${type==='Movie'?'movie':'tv'}">${type}</span></td>
     <td class="t-origname">${e.original_name || '—'}</td>
     <td class="num">${series}</td>
     <td class="num">${episode}</td>
@@ -212,11 +229,11 @@ function renderEntry(e){
 async function loadDay(){
   const ledger = document.getElementById('ledger');
   document.getElementById('curDate').textContent = dayLabel(new Date(state.date+'T00:00:00'));
-  ledger.innerHTML = '<tr><td colspan="8" class="empty">Loading…</td></tr>';
+  ledger.innerHTML = '<tr><td colspan="9" class="empty">Loading…</td></tr>';
   const rows = await sb('entries', { channel_slug: `eq.${state.slug}`, date: `eq.${state.date}`, select: '*', order: 'time.asc' });
   ledger.innerHTML = '';
   if (!rows.length){
-    ledger.innerHTML = `<tr><td colspan="8" class="empty">No listing logged for ${state.date} yet.</td></tr>`;
+    ledger.innerHTML = `<tr><td colspan="9" class="empty">No listing logged for ${state.date} yet.</td></tr>`;
     return;
   }
   rows.forEach(e => ledger.appendChild(renderEntry(e)));
