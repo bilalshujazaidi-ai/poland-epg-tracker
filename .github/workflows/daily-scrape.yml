@@ -28,9 +28,36 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - run: python scraper.py
+      - name: Run scraper (retrying on failure)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           TARGET_DATE: ${{ inputs.target_date }}
+        run: |
+          # scraper.py records completion per-channel in scrape_log before
+          # moving to the next one, so re-running it after a crash (a
+          # transient network blip against the source site, Supabase, or
+          # TMDb -- these currently raise uncaught and exit non-zero rather
+          # than being caught and retried internally) safely skips whatever
+          # channels are already done and only picks up the rest. No risk of
+          # duplicate entries or redone work, so a plain retry loop here is
+          # both safe and sufficient -- no need for retry logic inside
+          # scraper.py itself.
+          max_attempts=5
+          delay=60
+          for attempt in $(seq 1 "$max_attempts"); do
+            echo "=== Attempt $attempt of $max_attempts ==="
+            if python scraper.py; then
+              echo "Scrape succeeded on attempt $attempt."
+              exit 0
+            fi
+            echo "Attempt $attempt failed."
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              echo "Retrying in ${delay}s..."
+              sleep "$delay"
+              delay=$((delay * 2))
+            fi
+          done
+          echo "All $max_attempts attempts failed."
+          exit 1
