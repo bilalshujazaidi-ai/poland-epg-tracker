@@ -117,9 +117,14 @@ footer a{color:var(--accent);}
 
   <div class="bar">
     <select id="channelSelect"></select>
-    <div class="seg">
+    <div class="seg" id="viewSeg">
       <button data-view="day" class="active">Day log</button>
       <button data-view="month">Month rollup</button>
+    </div>
+    <div class="seg" id="typeSeg">
+      <button data-type="all" class="active">Movies + TV</button>
+      <button data-type="movie">Movies</button>
+      <button data-type="tv">TV Shows</button>
     </div>
     <div class="spacer"></div>
     <div class="datepick" id="dayNav">
@@ -136,7 +141,7 @@ footer a{color:var(--accent);}
 
   <section id="dayView">
     <p class="eyebrow" id="dayEyebrow">Broadcast day (06:00 – 05:59)</p>
-    <p class="filter-note">Showing: US / UK / Canada / Australia origin · 2018 onward · Movies &amp; TV Shows only</p>
+    <p class="filter-note" id="dayFilterNote">Showing: US / UK / Canada / Australia origin · 2018 onward · Movies &amp; TV Shows only</p>
     <div class="ledger">
       <table class="sched-table" id="schedTable">
         <thead>
@@ -165,7 +170,7 @@ footer a{color:var(--accent);}
       <span><span class="dot" style="background:var(--warn-soft)"></span>gap (not yet scraped)</span>
     </div>
     <div class="cal" id="calGrid"></div>
-    <p class="filter-note">Stats and ranking below: US / UK / Canada / Australia origin · 2018 onward · Movies &amp; TV Shows only</p>
+    <p class="filter-note" id="monthFilterNote">Stats and ranking below: US / UK / Canada / Australia origin · 2018 onward · Movies &amp; TV Shows only</p>
     <div class="stats" id="statGrid"></div>
     <p class="eyebrow">Most-aired titles</p>
     <div class="rank" id="rankList"></div>
@@ -184,7 +189,14 @@ const dayLabel = d => d.toLocaleDateString('en-GB',{weekday:'short',day:'2-digit
 const monthLabel = ym => { const [y,m]=ym.split('-'); return new Date(+y,+m-1,1).toLocaleDateString('en-GB',{month:'long',year:'numeric'}); };
 const daysInMonth = ym => { const [y,m]=ym.split('-').map(Number); return new Date(y,m,0).getDate(); };
 
-let state = { slug: 'bbcfirst', view: 'day', date: null, month: null };
+let state = { slug: 'bbcfirst', view: 'day', date: null, month: null, type: 'all' };
+
+const TYPE_FILTER_LABEL = { all: 'Movies & TV Shows only', movie: 'Movies only', tv: 'TV Shows only' };
+function updateFilterNotes(){
+  const label = TYPE_FILTER_LABEL[state.type];
+  document.getElementById('dayFilterNote').textContent = `Showing: US / UK / Canada / Australia origin · 2018 onward · ${label}`;
+  document.getElementById('monthFilterNote').textContent = `Stats and ranking below: US / UK / Canada / Australia origin · 2018 onward · ${label}`;
+}
 
 async function sb(path, params) {
   const url = new URL(`${SUPABASE_URL}/rest/v1/${path}`);
@@ -246,7 +258,10 @@ const EXCLUDED_TYPES = new Set(['Documentary','Magazine','Game Show']);
 function inScope(e){
   if (!e.year || e.year < 2018) return false;
   if (!e.country || !QUALIFYING_COUNTRY_RE.test(e.country)) return false;
-  if (EXCLUDED_TYPES.has(typeOf(e))) return false;
+  const t = typeOf(e);
+  if (EXCLUDED_TYPES.has(t)) return false;
+  if (state.type === 'movie' && t !== 'Movie') return false;
+  if (state.type === 'tv' && t !== 'TV Show') return false;
   return true;
 }
 
@@ -369,7 +384,7 @@ async function loadMonth(){
 
 function switchView(v){
   state.view = v;
-  document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('active', b.dataset.view===v));
+  document.querySelectorAll('#viewSeg button').forEach(b => b.classList.toggle('active', b.dataset.view===v));
   document.getElementById('dayView').style.display = v==='day' ? '' : 'none';
   document.getElementById('monthView').style.display = v==='month' ? '' : 'none';
   document.getElementById('dayNav').style.display = v==='day' ? '' : 'none';
@@ -414,12 +429,19 @@ async function boot(){
 
   await populateChannels();
 
-  document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => switchView(b.dataset.view)));
+  document.querySelectorAll('#viewSeg button').forEach(b => b.addEventListener('click', () => switchView(b.dataset.view)));
+  document.querySelectorAll('#typeSeg button').forEach(b => b.addEventListener('click', () => {
+    state.type = b.dataset.type;
+    document.querySelectorAll('#typeSeg button').forEach(x => x.classList.toggle('active', x===b));
+    updateFilterNotes();
+    switchView(state.view);
+  }));
   document.getElementById('prevDay').addEventListener('click', () => shiftDay(-1));
   document.getElementById('nextDay').addEventListener('click', () => shiftDay(1));
   document.getElementById('prevMonth').addEventListener('click', () => shiftMonth(-1));
   document.getElementById('nextMonth').addEventListener('click', () => shiftMonth(1));
 
+  updateFilterNotes();
   switchView('day');
 }
 boot();
