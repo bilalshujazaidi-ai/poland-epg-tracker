@@ -264,14 +264,17 @@ async function loadMonth(){
     calGrid.appendChild(cell);
   }
 
-  const entryRows = await sb('entries', { channel_slug: `eq.${state.slug}`, date: `gte.${start}`, and: `(date.lte.${end})`, select: 'title,duration_min' });
-  let totalMinutes = 0, titleCounts = {};
+  const entryRows = await sb('entries', { channel_slug: `eq.${state.slug}`, date: `gte.${start}`, and: `(date.lte.${end})`, select: 'title,duration_min,series_info,episode_of,genre' });
+  let totalMinutes = 0, titleCounts = {}, titleType = {}, movieCount = 0, tvCount = 0;
   entryRows.forEach(e => {
     totalMinutes += e.duration_min || 0;
     titleCounts[e.title] = (titleCounts[e.title]||0) + 1;
+    const t = typeOf(e);
+    if (!(e.title in titleType)) titleType[e.title] = t;
+    if (t === 'Movie') movieCount++; else tvCount++;
   });
 
-  [['Days logged', `${loggedDates.size} / ${total}`], ['Programmes', entryRows.length], ['Hours aired', (totalMinutes/60).toFixed(1)]]
+  [['Days logged', `${loggedDates.size} / ${total}`], ['Programmes', entryRows.length], ['Movies', movieCount], ['TV shows', tvCount], ['Hours aired', (totalMinutes/60).toFixed(1)]]
     .forEach(([l,n]) => {
       const s = document.createElement('div'); s.className='stat';
       s.innerHTML = `<div class="n">${n}</div><div class="l">${l}</div>`;
@@ -283,8 +286,9 @@ async function loadMonth(){
     rankList.innerHTML = '<div class="empty">No entries logged yet this month.</div>';
   } else {
     ranked.forEach(([title,count],i) => {
+      const type = titleType[title];
       const row = document.createElement('div'); row.className='rank-row';
-      row.innerHTML = `<div class="pos">${i+1}</div><div class="name">${title}</div><div class="count">${count} airing${count>1?'s':''}</div>`;
+      row.innerHTML = `<div class="pos">${i+1}</div><div class="name">${title} <span class="type-pill ${type==='Movie'?'movie':'tv'}">${type}</span></div><div class="count">${count} airing${count>1?'s':''}</div>`;
       rankList.appendChild(row);
     });
   }
