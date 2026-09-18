@@ -47,6 +47,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",
 .mast{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:10px 20px;padding-bottom:18px;border-bottom:2px solid var(--ink);margin-bottom:20px;}
 .mast h1{font-family:"Libre Franklin",sans-serif;font-weight:800;font-size:28px;letter-spacing:-0.01em;margin:0;text-wrap:balance;}
 .mast .tag{font-size:13px;color:var(--muted);font-family:"IBM Plex Mono",monospace;}
+#lastScraped{margin-top:4px;}
 .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:22px;}
 .seg{display:inline-flex;background:var(--surface-alt);border-radius:8px;padding:3px;gap:2px;}
 .seg button{appearance:none;border:none;background:transparent;color:var(--muted);font:600 13px/1 "IBM Plex Sans",sans-serif;padding:8px 14px;border-radius:6px;cursor:pointer;}
@@ -112,7 +113,10 @@ footer a{color:var(--accent);}
       <h1>Poland EPG Tracker</h1>
       <div class="tag">Poland channel programming — logged daily, source: programtv.naziemna.info</div>
     </div>
-    <div class="tag" id="statusTag">connecting…</div>
+    <div style="text-align:right">
+      <div class="tag" id="statusTag">connecting…</div>
+      <div class="tag" id="lastScraped">—</div>
+    </div>
   </div>
 
   <div class="bar">
@@ -420,12 +424,32 @@ async function populateChannels(){
   sel.addEventListener('change', () => { state.slug = sel.value; switchView(state.view); });
 }
 
+async function loadLastScraped(){
+  const el = document.getElementById('lastScraped');
+  // Global most-recent row across every channel -- tells you when the
+  // automation last actually touched the database, regardless of which
+  // channel you're currently viewing. "date" is the broadcast day that was
+  // scraped (always the previous day); "scraped_at" is the real wall-clock
+  // moment that write happened, which is what answers "is this still
+  // running on schedule". Europe/London handles the BST/GMT switch itself.
+  const rows = await sb('scrape_log', { select: 'date,scraped_at', order: 'scraped_at.desc', limit: 1 });
+  if (!rows.length){ el.textContent = 'No scrape logged yet'; return; }
+  const { date, scraped_at } = rows[0];
+  const ukTime = new Date(scraped_at).toLocaleString('en-GB', {
+    timeZone: 'Europe/London', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+  });
+  const [y, m, d] = date.split('-').map(Number);
+  const covered = new Date(y, m-1, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  el.textContent = `Last scrape: ${covered} data, logged ${ukTime} UK time`;
+}
+
 async function boot(){
   const now = new Date();
   state.date = isoOf(new Date(now.getTime() - 86400000));
   state.month = `${now.getFullYear()}-${PAD(now.getMonth()+1)}`;
 
   document.getElementById('statusTag').textContent = 'live';
+  loadLastScraped();
 
   await populateChannels();
 
