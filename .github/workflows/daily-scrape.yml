@@ -2,13 +2,27 @@ name: Daily EPG Scrape
 
 on:
   schedule:
-    # 08:12 UTC daily (~9-10am Poland time depending on DST). Deliberately NOT
-    # on the exact hour -- GitHub documents that scheduled workflows queued for
-    # the top of the hour are more likely to be delayed or dropped entirely
-    # during high load, since that's when the most schedules across all of
-    # GitHub fire at once. Confirmed happening to us on 2026-09-16 (the 08:00
-    # run never fired at all).
-    - cron: "12 8 * * *"
+    # Every 30 minutes from 10:00am UK time (09:00 UTC) through midnight UK
+    # time (23:00 UTC; UK is UTC+1 under BST) -- ~29 scheduled opportunities
+    # a day instead of one. This replaces the earlier single-fire-at-08:12
+    # approach: that offset-from-the-hour trick was meant to dodge GitHub's
+    # documented tendency to delay or silently drop scheduled workflows
+    # during high load, but it still failed outright on 2026-09-16, and
+    # again fired ~5 hours late on 2026-09-17. Spreading many attempts across
+    # the day is a more robust fix than trying to dodge congestion on a
+    # single one: short of an outage lasting the whole day, one of these WILL
+    # eventually land. No wasted work on the later, redundant firings once a
+    # day's scrape has already succeeded -- scraper.py already records
+    # completion per-channel in scrape_log and skips channels already done,
+    # so a run against an already-fully-scraped day finishes in well under a
+    # minute (just per-channel existence checks, no real scraping/API work).
+    #
+    # NOTE: these are fixed UTC times. UK clocks fall back to GMT in late
+    # October -- after that, 09:00/23:00 UTC will land at 9am/11pm UK time
+    # instead of 10am/midnight (a 1-hour drift) until updated for the new
+    # offset.
+    - cron: "0,30 9-22 * * *"
+    - cron: "0 23 * * *"
   workflow_dispatch:
     inputs:
       target_date:
