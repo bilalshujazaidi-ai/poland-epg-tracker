@@ -47,7 +47,9 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",
 .mast{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:10px 20px;padding-bottom:18px;border-bottom:2px solid var(--ink);margin-bottom:20px;}
 .mast h1{font-family:"Libre Franklin",sans-serif;font-weight:800;font-size:28px;letter-spacing:-0.01em;margin:0;text-wrap:balance;}
 .mast .tag{font-size:13px;color:var(--muted);font-family:"IBM Plex Mono",monospace;}
+#lastRun{margin-top:4px;}
 #lastScraped{margin-top:4px;}
+.tag.warn-text{color:var(--warn);}
 .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:22px;}
 .seg{display:inline-flex;background:var(--surface-alt);border-radius:8px;padding:3px;gap:2px;}
 .seg button{appearance:none;border:none;background:transparent;color:var(--muted);font:600 13px/1 "IBM Plex Sans",sans-serif;padding:8px 14px;border-radius:6px;cursor:pointer;}
@@ -115,6 +117,7 @@ footer a{color:var(--accent);}
     </div>
     <div style="text-align:right">
       <div class="tag" id="statusTag">connecting…</div>
+      <div class="tag" id="lastRun">—</div>
       <div class="tag" id="lastScraped">—</div>
     </div>
   </div>
@@ -424,23 +427,52 @@ async function populateChannels(){
   sel.addEventListener('change', () => { state.slug = sel.value; switchView(state.view); });
 }
 
+function toUkTime(isoString){
+  return new Date(isoString).toLocaleString('en-GB', {
+    timeZone: 'Europe/London', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+  });
+}
+
 async function loadLastScraped(){
   const el = document.getElementById('lastScraped');
-  // Global most-recent row across every channel -- tells you when the
-  // automation last actually touched the database, regardless of which
-  // channel you're currently viewing. "date" is the broadcast day that was
-  // scraped (always the previous day); "scraped_at" is the real wall-clock
-  // moment that write happened, which is what answers "is this still
-  // running on schedule". Europe/London handles the BST/GMT switch itself.
+  // Global most-recent row across every channel. IMPORTANT: scraped_at only
+  // changes when a row is actually INSERTed -- scraper.py skips (and never
+  // re-touches) a channel/date already in scrape_log, so this is "last time
+  // NEW data was actually written", not "last time the workflow ran". A
+  // workflow run that finds everything already done -- which is common,
+  // since most days only need scraping once -- succeeds without moving this
+  // timestamp at all. See loadLastRun() for the companion "did the
+  // automation itself run" signal; the two can legitimately disagree.
   const rows = await sb('scrape_log', { select: 'date,scraped_at', order: 'scraped_at.desc', limit: 1 });
   if (!rows.length){ el.textContent = 'No scrape logged yet'; return; }
   const { date, scraped_at } = rows[0];
-  const ukTime = new Date(scraped_at).toLocaleString('en-GB', {
-    timeZone: 'Europe/London', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
-  });
   const [y, m, d] = date.split('-').map(Number);
   const covered = new Date(y, m-1, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-  el.textContent = `Last scrape: ${covered} data, logged ${ukTime} UK time`;
+  el.textContent = `Data last written: ${covered} data, ${toUkTime(scraped_at)} UK time`;
+}
+
+async function loadLastRun(){
+  const el = document.getElementById('lastRun');
+  // From the GitHub Actions API directly (public repo, no auth needed) --
+  // this is "did the workflow itself fire and finish", independent of
+  // whether it found any new data to write. A run that's `schedule`-
+  // triggered and merely skipped 61 already-done channels still shows up
+  // here as a successful run, which is the point: it answers "is GitHub
+  // actually running this on schedule" separately from "is there new data".
+  try {
+    const res = await fetch('https://api.github.com/repos/bilalshujazaidi-ai/poland-epg-tracker/actions/workflows/daily-scrape.yml/runs?per_page=1');
+    if (!res.ok) throw new Error('GitHub API ' + res.status);
+    const { workflow_runs } = await res.json();
+    if (!workflow_runs || !workflow_runs.length){ el.textContent = 'No automation runs found'; return; }
+    const run = workflow_runs[0];
+    const trigger = run.event === 'schedule' ? 'scheduled' : (run.event === 'workflow_dispatch' ? 'manual' : run.event);
+    const ok = run.conclusion === 'success';
+    el.textContent = `Automation last ran: ${toUkTime(run.updated_at)} UK time (${trigger}, ${run.conclusion || run.status})`;
+    el.classList.toggle('warn-text', !ok);
+  } catch (err) {
+    console.error('loadLastRun failed', err);
+    el.textContent = 'Automation status unavailable';
+  }
 }
 
 async function boot(){
@@ -449,6 +481,7 @@ async function boot(){
   state.month = `${now.getFullYear()}-${PAD(now.getMonth()+1)}`;
 
   document.getElementById('statusTag').textContent = 'live';
+  loadLastRun();
   loadLastScraped();
 
   await populateChannels();
