@@ -214,7 +214,10 @@ def slugify(title: str) -> str:
 
 
 def fetch_channel_page(slug: str, target_date: date):
-    day = target_date.day
+    # The site's date URLs zero-pad single-digit days ("01-października"); the
+    # unpadded form ("1-października") silently returns a generic landing page
+    # instead of the schedule. Invisible until the first of a month.
+    day = f"{target_date.day:02d}"
     month_name = POLISH_MONTH_GENITIVE[target_date.month]
     url = f"https://programtv.naziemna.info/program/stacja/{slug},{day}-{month_name}"
     try:
@@ -550,7 +553,7 @@ def resolve_title(title, country, year, cast=None, director=None, genre=None):
     # "Va Banque" / "Koło fortuny" cases from the 2026-09-17 fresh-scrape
     # check for real examples of the failure this avoids.
     if genre and genre.strip().lower() in SKIP_RESOLUTION_GENRES:
-        return None, None
+        return None, None, None
 
     iso = map_country_to_iso(country)
 
