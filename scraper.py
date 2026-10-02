@@ -722,6 +722,20 @@ def main():
                 "original_name": original_name,
             })
 
+        # The source page occasionally lists the same show twice at the same
+        # time (e.g. two back-to-back episodes both stamped 00:00); entries has
+        # a unique (channel, date, time, title) key, so one such pair would
+        # reject the whole batch with a 409 and abort the run.
+        seen_keys = set()
+        unique_rows = []
+        for row in rows:
+            key = (row["time"], row["title"])
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            unique_rows.append(row)
+        rows = unique_rows
+
         sb_insert("entries", rows)
         sb_upsert("scrape_log", [{
             "channel_slug": slug,
