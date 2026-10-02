@@ -752,6 +752,14 @@ def main():
         f"{invalid} had no data for this date. {total_entries} entries written."
     )
 
+    # Every channel came back with no schedule and nothing was already done:
+    # that is a broken scrape (bad URL format, site change, outage), not a
+    # genuinely empty day. Exit non-zero so the workflow retries and shows red
+    # instead of reporting a silent "success" that wrote nothing.
+    if scraped == 0 and skipped == 0 and invalid > 0:
+        return (f"FAILED: all {invalid} channels returned no schedule for "
+                f"{target_date.isoformat()} - nothing was written.")
+
 
 if __name__ == "__main__":
     sys.exit(main())
