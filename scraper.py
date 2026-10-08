@@ -3,7 +3,7 @@
 
 Fetches yesterday's finalized broadcast-day schedule for a fixed list of
 Polish TV channels from programtv.naziemna.info, keeps only entries whose
-origin is USA/UK/Canada/Australia (or unlisted) and whose year is 2018+,
+origin is USA/UK/Canada/Australia (or unlisted) and whose year is 2024+,
 resolves each title's IMDb link via TMDb (cached), and writes everything to
 a Supabase Postgres database.
 """
@@ -333,7 +333,7 @@ def parse_entries(text: str):
 
 
 def passes_filter(entry) -> bool:
-    if not entry["year"] or entry["year"] < 2018:
+    if not entry["year"] or entry["year"] < 2024:
         return False
     if entry["country"] and not QUALIFYING_COUNTRY_RE.search(entry["country"]):
         return False
